@@ -26,6 +26,21 @@ def create_app(config_class=Config):
 
     # Recaptcha API sẽ được đăng ký riêng khi cần (không import ở đây)
 
+    # Thêm route root để test
+    @app.route('/')
+    @app.route('/api')
+    def home():
+        from flask import jsonify
+        return jsonify({
+            'message': 'Backend API Server',
+            'version': '1.0',
+            'endpoints': {
+                'auth': '/api/auth',
+                'user': '/api/user',
+                'payment': '/api/payment'
+            }
+        })
+
     # 3. Tạo bảng DB nếu chưa có (cho môi trường dev)
     with app.app_context():
         db.create_all()

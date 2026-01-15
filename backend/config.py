@@ -13,8 +13,8 @@ class Config:
     PERMANENT_SESSION_LIFETIME = 86400  # 24 hours
     
     # Cấu hình SePay & Mail
-    BANK_ID = "MB"
-    ACCOUNT_NO = "0966549624"
+    BANK_ID = "ACB"
+    ACCOUNT_NO = "23766621"
     TEMPLATE = "compact"
     # Webhook secret key để verify webhook requests
     WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET') or 'webhook-secret-key-change-in-production'

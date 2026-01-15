@@ -1,4 +1,5 @@
 # Payment System - Hệ Thống Thanh Toán QR Code
+cloudflared tunnel --config "C:\Users\p\.cloudflared\config.yml" run nanoproai
 
 ## 📋 Mục Lục
 
@@ -9,7 +10,7 @@
 5. [API Endpoints](#api-endpoints)
 6. [Database Models](#database-models)
 7. [Bảo Mật](#bảo-mật)
-8. [Cấu Hình](#cấu-hình)
+8. [Cấu Hình](#cấu-hình)  
 9. [Troubleshooting](#troubleshooting)
 
 ---

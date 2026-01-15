@@ -16,13 +16,19 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='Recaptcha API Server Runner')
-    parser.add_argument('--port', type=int, default=5001,
-                       help='Port to run the server on (default: 5001)')
-    parser.add_argument('--host', default='0.0.0.0',
-                       help='Host to bind to (default: 0.0.0.0)')
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=5001
+    )
+    parser.add_argument(
+        '--host',
+        default='0.0.0.0'
+    )
 
     args = parser.parse_args()
 
     # Import và chạy logic từ recaptcha.py
     from app.routes.recaptcha import run_recaptcha_server
-    run_recaptcha_server(port=args.port, host=args.host) 
+    # Truyền trạng thái headless vào server; server sẽ forward xuống get_captcha_token
+    run_recaptcha_server(port=args.port, host=args.host)
