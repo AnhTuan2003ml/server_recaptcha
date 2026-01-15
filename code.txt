@@ -1,0 +1,3 @@
+python -m venv venv
+venv\Scripts\activate
+git add .; git commit -m "four commit"; git push

@@ -1,0 +1,132 @@
+# ============================================
+# Python / Backend
+# ============================================
+
+# Virtual Environment
+backend/venv/
+backend/env/
+backend/.venv/
+backend/.env
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Flask
+backend/instance/*.db
+backend/instance/*.sqlite
+backend/instance/*.db-journal
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE - Python
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ============================================
+# Node.js / Frontend
+# ============================================
+
+# Dependencies
+frontend/node_modules/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Nuxt build output
+frontend/.nuxt/
+frontend/.output/
+frontend/dist/
+frontend/.nitro/
+frontend/.cache/
+
+# Nuxt dev
+frontend/.nuxt/
+frontend/.nitro/
+
+# ============================================
+# Config Files (Sensitive)
+# ============================================
+
+# Email config (chứa password)
+backend/config/email_config.json
+
+# Environment configs
+*.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ============================================
+# Database
+# ============================================
+
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# ============================================
+# OS Files
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================
+# Logs
+# ============================================
+
+*.log
+logs/
+*.log.*
+
+# ============================================
+# Temporary files
+# ============================================
+
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# ============================================
+# Package files
+# ============================================
+
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+

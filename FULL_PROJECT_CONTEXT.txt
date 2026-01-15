@@ -1,0 +1,885 @@
+=== PROJECT CONTEXT EXPORT ===
+
+PROJECT STRUCTURE:
+server_new/
+    readme.md
+    backend/
+        config.py
+        requirements.txt
+        run.py
+        app/
+            extensions.py
+            __init__.py
+            models/
+                transaction.py
+                user.py
+                __init__.py
+            routes/
+                auth.py
+                payment.py
+                user.py
+                __init__.py
+            services/
+                sepay_service.py
+                __init__.py
+        instance/
+            payment.db
+    frontend/
+        .gitignore
+        nuxt.config.ts
+        package.json
+        README.md
+        tsconfig.json
+        app/
+            app.vue
+            assets/
+                css/
+                    main.css
+            pages/
+                index.vue
+                login.vue
+            stores/
+                auth.ts
+        public/
+            favicon.ico
+            robots.txt
+
+============================================================
+
+--- START FILE: backend\config.py ---
+import os
+
+class Config:
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'super-secret-key-cua-sep'
+    # Sử dụng SQLite cho hiện tại
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///payment.db'
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # Cấu hình SePay & Mail
+    BANK_ID = "MB" 
+    ACCOUNT_NO = "0123456789"
+    TEMPLATE = "compact"
+--- END FILE: backend\config.py ---
+
+--- START FILE: backend\run.py ---
+from app import create_app
+
+app = create_app()
+
+if __name__ == '__main__':
+    print("🚀 Server is running with Scalable Structure!")
+    app.run(debug=True, port=5000)
+--- END FILE: backend\run.py ---
+
+--- START FILE: backend\app\extensions.py ---
+from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
+
+db = SQLAlchemy()
+cors = CORS()
+--- END FILE: backend\app\extensions.py ---
+
+--- START FILE: backend\app\__init__.py ---
+from flask import Flask
+from config import Config
+from app.extensions import db, cors
+
+def create_app(config_class=Config):
+    app = Flask(__name__)
+    app.config.from_object(config_class)
+
+    # 1. Khởi tạo Extensions
+    db.init_app(app)
+    cors.init_app(app)
+
+    # 2. Đăng ký các Blueprints (Routes)
+    from app.routes.auth import auth_bp
+    from app.routes.user import user_bp
+    from app.routes.payment import payment_bp
+
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    app.register_blueprint(user_bp, url_prefix='/api/user')
+    app.register_blueprint(payment_bp, url_prefix='/api/payment')
+
+    # 3. Tạo bảng DB nếu chưa có (cho môi trường dev)
+    with app.app_context():
+        db.create_all()
+
+    return app
+--- END FILE: backend\app\__init__.py ---
+
+--- START FILE: backend\app\models\transaction.py ---
+from app.extensions import db
+from datetime import datetime
+
+class Transaction(db.Model):
+    __tablename__ = 'transactions'
+    
+    id = db.Column(db.String(20), primary_key=True) # Mã giao dịch (A1B2...)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    amount = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), default='pending') # pending, success
+    content = db.Column(db.String(200)) # Nội dung chuyển khoản
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+--- END FILE: backend\app\models\transaction.py ---
+
+--- START FILE: backend\app\models\user.py ---
+from app.extensions import db
+from datetime import datetime
+
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    credit = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Quan hệ
+    transactions = db.relationship('Transaction', backref='user', lazy=True)
+    sessions = db.relationship('Session', backref='user', lazy=True)
+
+class Session(db.Model):
+    __tablename__ = 'sessions'
+    
+    token = db.Column(db.String(64), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    expires_at = db.Column(db.Float, nullable=False)
+
+class OTP(db.Model):
+    __tablename__ = 'otps'
+    
+    email = db.Column(db.String(120), primary_key=True)
+    otp_code = db.Column(db.String(6), nullable=False)
+    expires_at = db.Column(db.Float, nullable=False)
+--- END FILE: backend\app\models\user.py ---
+
+--- START FILE: backend\app\models\__init__.py ---
+
+--- END FILE: backend\app\models\__init__.py ---
+
+--- START FILE: backend\app\routes\auth.py ---
+from flask import Blueprint, request, jsonify
+from app.extensions import db
+from app.models.user import User, OTP, Session
+import random, string, time, uuid
+
+auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.route('/otp', methods=['POST'])
+def create_otp():
+    data = request.get_json()
+    email = data.get('email')
+    
+    if not email:
+        return jsonify({"error": "Thiếu email"}), 400
+        
+    # 1. Auto Register logic
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(email=email)
+        db.session.add(user)
+        db.session.commit()
+    
+    # 2. Tạo OTP
+    otp_code = ''.join(random.choices(string.digits, k=6))
+    expires = time.time() + 300 # 5 phút
+    
+    # Lưu OTP (Update nếu đã tồn tại)
+    otp_entry = OTP.query.filter_by(email=email).first()
+    if otp_entry:
+        otp_entry.otp_code = otp_code
+        otp_entry.expires_at = expires
+    else:
+        new_otp = OTP(email=email, otp_code=otp_code, expires_at=expires)
+        db.session.add(new_otp)
+    
+    db.session.commit()
+    
+    # TODO: Tích hợp gửi mail thật ở đây
+    print(f"📧 OTP for {email}: {otp_code}")
+    
+    return jsonify({"success": True, "message": "OTP sent"})
+
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    otp_input = data.get('otp')
+    
+    otp_record = OTP.query.filter_by(email=email).first()
+    
+    if otp_record and otp_record.otp_code == otp_input:
+        if time.time() > otp_record.expires_at:
+            return jsonify({"error": "OTP expired"}), 400
+            
+        # Login thành công -> Tạo Session
+        user = User.query.filter_by(email=email).first()
+        token = str(uuid.uuid4())
+        expires = time.time() + (86400 * 2) # 2 ngày
+        
+        new_session = Session(token=token, user_id=user.id, expires_at=expires)
+        db.session.add(new_session)
+        
+        # Xóa OTP cũ
+        db.session.delete(otp_record)
+        db.session.commit()
+        
+        return jsonify({"success": True, "token": token})
+        
+    return jsonify({"error": "Invalid OTP"}), 400
+--- END FILE: backend\app\routes\auth.py ---
+
+--- START FILE: backend\app\routes\payment.py ---
+from flask import Blueprint, request, jsonify, current_app
+from app.extensions import db
+from app.models.user import User, Session
+from app.models.transaction import Transaction
+import random, string, re, time
+
+payment_bp = Blueprint('payment', __name__)
+
+# Middleware giả để lấy user từ token (Có thể tách ra file utils)
+def get_user_from_token():
+    token = request.headers.get('Authorization')
+    if not token: return None
+    session = Session.query.filter_by(token=token).first()
+    if session and session.expires_at > time.time():
+        return User.query.get(session.user_id)
+    return None
+
+@payment_bp.route('/qr', methods=['POST'])
+def create_qr():
+    user = get_user_from_token()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    amount = request.json.get('amount')
+    if not amount: return jsonify({"error": "Missing amount"}), 400
+    
+    # Tạo mã giao dịch ngắn gọn
+    trans_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+    
+    # Lưu vào DB
+    new_trans = Transaction(id=trans_id, user_id=user.id, amount=amount)
+    db.session.add(new_trans)
+    db.session.commit()
+    
+    # Nội dung & Link QR
+    memo = f"AUTO{trans_id}-{amount}END"
+    bank_id = current_app.config['BANK_ID']
+    acc_no = current_app.config['ACCOUNT_NO']
+    template = current_app.config['TEMPLATE']
+    
+    qr_url = f"https://img.vietqr.io/image/{bank_id}-{acc_no}-{template}.png?amount={amount}&addInfo={memo}"
+    
+    return jsonify({
+        "success": True,
+        "trans_id": trans_id,
+        "qr_url": qr_url,
+        "memo": memo
+    })
+
+@payment_bp.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json()
+    content = data.get('content', '')
+    transfer_amount = data.get('transferAmount', 0)
+    
+    print(f"📩 Webhook: {content} - Amount: {transfer_amount}")
+    
+    # Parse ID: AUTO[ID]-[TIEN]END
+    match = re.search(r'AUTO([A-Z0-9]+)-(\d+)END', content)
+    
+    if match:
+        trans_id = match.group(1)
+        
+        # Tìm giao dịch pending
+        tx = Transaction.query.filter_by(id=trans_id, status='pending').first()
+        
+        if tx:
+            # Cộng tiền
+            user = User.query.get(tx.user_id)
+            user.credit += int(transfer_amount)
+            
+            # Update trạng thái
+            tx.status = 'success'
+            
+            db.session.commit()
+            print(f"✅ User {user.email} +{transfer_amount}")
+            return jsonify({"success": True, "message": "Topup success"})
+            
+    return jsonify({"success": False, "message": "Ignored"}), 200
+--- END FILE: backend\app\routes\payment.py ---
+
+--- START FILE: backend\app\routes\user.py ---
+from flask import Blueprint, jsonify, request
+from app.models.user import Session, User
+import time
+
+user_bp = Blueprint('user', __name__)
+
+@user_bp.route('/me', methods=['GET'])
+def get_me():
+    token = request.headers.get('Authorization')
+    session = Session.query.filter_by(token=token).first()
+    
+    if session and session.expires_at > time.time():
+        user = User.query.get(session.user_id)
+        return jsonify({
+            "id": user.id,
+            "email": user.email,
+            "credit": user.credit
+        })
+    return jsonify({"error": "Unauthorized"}), 401
+--- END FILE: backend\app\routes\user.py ---
+
+--- START FILE: backend\app\routes\__init__.py ---
+
+--- END FILE: backend\app\routes\__init__.py ---
+
+--- START FILE: backend\app\services\sepay_service.py ---
+def parse_payment(content: str):
+    return {"raw": content}
+
+--- END FILE: backend\app\services\sepay_service.py ---
+
+--- START FILE: backend\app\services\__init__.py ---
+
+--- END FILE: backend\app\services\__init__.py ---
+
+--- START FILE: frontend\nuxt.config.ts ---
+// nuxt.config.ts
+export default defineNuxtConfig({
+  compatibilityDate: '2025-01-06',
+  devtools: { enabled: true },
+
+  modules: [
+    '@pinia/nuxt' // Chỉ giữ lại Pinia
+  ],
+
+  css: [
+    './assets/css/main.css'
+  ],
+
+  runtimeConfig: {
+    public: {
+      apiBase: 'http://localhost:5000/api'
+    }
+  }
+})
+--- END FILE: frontend\nuxt.config.ts ---
+
+--- START FILE: frontend\package.json ---
+{
+  "name": "frontend",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@pinia/nuxt": "^0.11.3",
+    "nuxt": "^4.2.2",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.26",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3"
+  }
+}
+
+--- END FILE: frontend\package.json ---
+
+--- START FILE: frontend\tsconfig.json ---
+{
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client"]
+  }
+}
+--- END FILE: frontend\tsconfig.json ---
+
+--- START FILE: frontend\app\app.vue ---
+<template>
+  <div>
+    <NuxtPage />
+  </div>
+</template>
+
+--- END FILE: frontend\app\app.vue ---
+
+--- START FILE: frontend\app\assets\css\main.css ---
+/* frontend/assets/css/main.css */
+body {
+    margin          : 0;
+    padding         : 0;
+    font-family     : -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f4f6f8;
+    color           : #333;
+}
+
+button {
+    cursor    : pointer;
+    transition: all 0.2s;
+}
+
+input {
+    box-sizing: border-box;
+}
+--- END FILE: frontend\app\assets\css\main.css ---
+
+--- START FILE: frontend\app\pages\index.vue ---
+<template>
+  <div class="dashboard-container">
+    <header class="top-bar">
+      <div class="brand">My Payment App</div>
+      <button class="btn-logout" @click="handleLogout">Đăng xuất</button>
+    </header>
+
+    <main class="main-content">
+      <div v-if="auth.user" class="balance-card">
+        <p class="greeting">Xin chào, {{ auth.user.email }}</p>
+
+        <div class="credit-display">
+          <span>Số dư khả dụng:</span>
+          <h1 class="amount">{{ formatCurrency(auth.user.credit) }}</h1>
+        </div>
+
+        <div class="actions">
+          <button class="btn-deposit">Nạp Tiền (QR)</button>
+          <button class="btn-history">Lịch sử</button>
+        </div>
+      </div>
+
+      <div v-else class="loading">Đang tải dữ liệu...</div>
+    </main>
+  </div>
+</template>
+
+<script setup>
+import { onMounted } from "vue";
+import { useAuthStore } from "~/stores/auth";
+import { useRouter } from "vue-router";
+
+const auth = useAuthStore();
+const router = useRouter();
+
+// Format tiền VND
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(
+    value
+  );
+};
+
+const handleLogout = () => {
+  auth.logout();
+};
+
+// Chặn nếu chưa login
+onMounted(() => {
+  auth.initialize();
+  if (!auth.token) {
+    router.push("/login");
+  }
+});
+</script>
+
+<style scoped>
+.dashboard-container {
+  min-height: 100vh;
+  background-color: #f8f9fa;
+}
+
+.top-bar {
+  background: white;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.brand {
+  font-weight: bold;
+  font-size: 1.2rem;
+  color: #2c3e50;
+}
+
+.main-content {
+  padding: 2rem;
+  display: flex;
+  justify-content: center;
+}
+
+.balance-card {
+  background: white;
+  padding: 2.5rem;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 500px;
+  text-align: center;
+}
+
+.greeting {
+  color: #7f8c8d;
+  margin-bottom: 1.5rem;
+}
+
+.credit-display {
+  background: #f1f8ff;
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}
+
+.credit-display span {
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.amount {
+  font-size: 2.5rem;
+  color: #2980b9;
+  margin: 0.5rem 0 0 0;
+  font-weight: 800;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+button {
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.btn-deposit {
+  background-color: #3498db;
+  color: white;
+  flex: 2;
+}
+.btn-deposit:hover {
+  background-color: #2980b9;
+}
+
+.btn-history {
+  background-color: #ecf0f1;
+  color: #2c3e50;
+  flex: 1;
+}
+.btn-history:hover {
+  background-color: #bdc3c7;
+}
+
+.btn-logout {
+  background: none;
+  border: 1px solid #e74c3c;
+  color: #e74c3c;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+}
+.btn-logout:hover {
+  background-color: #e74c3c;
+  color: white;
+}
+</style>
+
+--- END FILE: frontend\app\pages\index.vue ---
+
+--- START FILE: frontend\app\pages\login.vue ---
+<template>
+  <div class="login-container">
+    <div class="login-card">
+      <h1 class="title">Đăng Nhập</h1>
+
+      <div v-if="step === 1" class="form-group">
+        <label>Email</label>
+        <input
+          v-model="email"
+          type="email"
+          placeholder="user@example.com"
+          @keyup.enter="requestOtp"
+        />
+        <button class="btn-primary" @click="requestOtp" :disabled="loading">
+          {{ loading ? "Đang gửi..." : "Lấy mã OTP" }}
+        </button>
+      </div>
+
+      <div v-else class="form-group">
+        <p class="info-text">
+          Đã gửi mã tới <b>{{ email }}</b>
+        </p>
+
+        <label>Mã OTP</label>
+        <input
+          v-model="otp"
+          type="text"
+          class="otp-input"
+          placeholder="123456"
+          maxlength="6"
+        />
+
+        <button class="btn-success" @click="verifyOtp" :disabled="loading">
+          {{ loading ? "Đang xử lý..." : "Xác nhận" }}
+        </button>
+
+        <button class="btn-link" @click="step = 1">Quay lại nhập Email</button>
+      </div>
+
+      <p v-if="error" class="error-msg">{{ error }}</p>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from "vue";
+import { useAuthStore } from "~/stores/auth";
+import { useRouter } from "vue-router";
+
+const config = useRuntimeConfig();
+const auth = useAuthStore();
+const router = useRouter();
+
+const step = ref(1);
+const email = ref("");
+const otp = ref("");
+const loading = ref(false);
+const error = ref("");
+
+const requestOtp = async () => {
+  if (!email.value) return;
+  loading.value = true;
+  error.value = "";
+
+  try {
+    await $fetch(`${config.public.apiBase}/auth/otp`, {
+      method: "POST",
+      body: { email: email.value },
+    });
+    step.value = 2;
+  } catch (err) {
+    error.value = "Lỗi kết nối Backend!";
+  } finally {
+    loading.value = false;
+  }
+};
+
+const verifyOtp = async () => {
+  if (!otp.value) return;
+  loading.value = true;
+  error.value = "";
+
+  try {
+    const res = await $fetch(`${config.public.apiBase}/auth/login`, {
+      method: "POST",
+      body: { email: email.value, otp: otp.value },
+    });
+
+    if (res.success) {
+      auth.setToken(res.token);
+      // Gọi thêm API lấy thông tin user để cập nhật Store ngay lập tức
+      await auth.fetchUser();
+      router.push("/");
+    }
+  } catch (err) {
+    error.value = "Mã OTP không đúng!";
+  } finally {
+    loading.value = false;
+  }
+};
+</script>
+
+<style scoped>
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.login-card {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 400px;
+}
+
+.title {
+  text-align: center;
+  color: #2c3e50;
+  margin-bottom: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+input {
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+  width: 100%;
+}
+
+input:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.otp-input {
+  text-align: center;
+  letter-spacing: 4px;
+  font-size: 1.2rem;
+}
+
+button {
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  font-size: 1rem;
+}
+
+.btn-primary {
+  background-color: #3498db;
+  color: white;
+}
+.btn-primary:hover {
+  background-color: #2980b9;
+}
+
+.btn-success {
+  background-color: #27ae60;
+  color: white;
+}
+.btn-success:hover {
+  background-color: #219150;
+}
+
+.btn-link {
+  background: none;
+  color: #7f8c8d;
+  font-size: 0.9rem;
+  font-weight: normal;
+}
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.info-text {
+  text-align: center;
+  color: #666;
+  margin: 0;
+}
+
+.error-msg {
+  color: #e74c3c;
+  text-align: center;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+</style>
+
+--- END FILE: frontend\app\pages\login.vue ---
+
+--- START FILE: frontend\app\stores\auth.ts ---
+// frontend/stores/auth.ts
+import { defineStore } from 'pinia'
+import { useRuntimeConfig, navigateTo } from 'nuxt/app'
+import { $fetch } from 'ofetch'
+
+interface User {
+  id: number
+  email: string
+  credit: number
+}
+
+interface AuthState {
+  user: User | null
+  token: string | null
+}
+
+const isClient = () => typeof window !== 'undefined'
+
+export const useAuthStore = defineStore('auth', {
+  state: (): AuthState => ({
+    user: null,
+    token: null,
+  }),
+
+  actions: {
+    setToken(token: string) {
+      this.token = token
+      if (isClient()) {
+        localStorage.setItem('auth_token', token)
+      }
+    },
+
+    async fetchUser() {
+      if (!this.token) return
+
+      const config = useRuntimeConfig()
+
+      try {
+        const res = await $fetch<User>(
+          `${config.public.apiBase}/user/me`,
+          {
+            headers: {
+              Authorization: this.token,
+            },
+          }
+        )
+        this.user = res
+      } catch {
+        this.logout()
+      }
+    },
+
+    logout() {
+      this.user = null
+      this.token = null
+
+      if (isClient()) {
+        localStorage.removeItem('auth_token')
+        navigateTo('/login')
+      }
+    },
+
+    initialize() {
+      if (!isClient()) return
+
+      const token = localStorage.getItem('auth_token')
+      if (token) {
+        this.token = token
+        this.fetchUser()
+      }
+    },
+  },
+})
+
+--- END FILE: frontend\app\stores\auth.ts ---
+
